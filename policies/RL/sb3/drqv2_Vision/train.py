@@ -9,44 +9,9 @@ from env import Env
 from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.callbacks import EvalCallback, BaseCallback
-from sbx import PPO
+from drqv2_sb3 import DrQV2
 from tqdm import tqdm
 from datetime import datetime
-
-# 自定义特征提取器，用于处理图像输入
-class CNNFeatureExtractor(torch.nn.Module):
-    def __init__(self, observation_space):
-        super(CNNFeatureExtractor, self).__init__()
-        # 输入是(3, 84, 84)的RGB图像
-        self.cnn = torch.nn.Sequential(
-            torch.nn.Conv2d(3, 32, kernel_size=8, stride=4),
-            torch.nn.ReLU(),
-            torch.nn.Conv2d(32, 64, kernel_size=4, stride=2),
-            torch.nn.ReLU(),
-            torch.nn.Conv2d(64, 64, kernel_size=3, stride=1),
-            torch.nn.ReLU(),
-            torch.nn.Flatten()
-        )
-        
-        # 计算CNN输出特征的维度
-        with torch.no_grad():
-            sample = torch.zeros(1, *observation_space.shape)
-            n_flatten = self.cnn(sample).shape[1]
-        
-        self.linear = torch.nn.Sequential(
-            torch.nn.Linear(n_flatten, 512),
-            torch.nn.ReLU()
-        )
-        
-        self._features_dim = 512
-        
-    def forward(self, observations):
-        return self.linear(self.cnn(observations))
-    
-    @property
-    def features_dim(self):
-        return self._features_dim
-
 
 def make_env(render=True):
     """创建环境的工厂函数"""
@@ -73,8 +38,8 @@ def train(render=True):
         print("环境创建完成")
         # 添加Monitor包装器来记录训练数据
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_dir = os.path.join(DISCOVERSE_ROOT_DIR, f"data/PPO_Vision/logs/{current_time}")
-
+        log_dir = os.path.join(DISCOVERSE_ROOT_DIR, f"data/DrQV2_Vision/logs/{current_time}")
+        
         os.makedirs(log_dir, exist_ok=True)
         env = Monitor(env, log_dir)
         print("Monitor包装器添加完成")
@@ -119,30 +84,22 @@ def train(render=True):
                 self.pbar.close()
                 self.pbar = None
 
-        # 创建特征提取器的策略关键字参数
-        policy_kwargs = {
-            "features_extractor_class": CNNFeatureExtractor,
-            "features_extractor_kwargs": {"observation_space": env.observation_space}
-        }
-        print("特征提取器参数设置完成")
 
-        # 创建PPO模型
-        model = PPO(
-            "MlpPolicy",
+        model = DrQV2(
+            "DrQV2Policy",
             env,
-            policy_kwargs=policy_kwargs,  # 使用自定义特征提取器
-            n_steps=2048,  # 每次更新所收集的轨迹长度
-            batch_size=64,  # 批次大小
-            n_epochs=10,  # 每次更新迭代次数
-            gamma=0.99,  # 折扣因子
-            learning_rate=3e-4,  # 学习率
-            clip_range=0.2,  # PPO策略裁剪范围
-            ent_coef=0.01,  # 熵正则化系数
+            batch_size=64,
+            buffer_size=10000,
+            learning_starts=20,  # 开始学习前的步数2000
+            train_freq=2,  # 每2步更新一次
+            gradient_steps=2,  # 每次更新的梯度步数
+            gamma=0.99,
+            learning_rate=3e-4,
             tensorboard_log=log_dir,
-            verbose=1  # 输出详细程度
+            verbose=1
         )
         
-        print("PPO模型创建完成，开始收集经验...")
+        print("DrQV2模型创建完成，开始收集经验...")
 
         # 训练模型
         total_timesteps = 10000
@@ -153,7 +110,7 @@ def train(render=True):
             log_interval=10,  # 每10次更新后记录日志
         )
 
-        # 保存最终模型
+
         save_path = os.path.join(log_dir, "final_model")
         model.save(save_path)
         print(f"模型已保存到: {save_path}")
@@ -162,30 +119,14 @@ def train(render=True):
         print(f"训练过程发生错误: {str(e)}")
         raise e
     finally:
-        # 确保正确清理资源
         if 'env' in locals():
-            try:
-                env.close()
-                del env
-            except:
-                pass
-        
-        # 手动清理GLFW资源
-        import glfw
-        try:
-            glfw.terminate()
-        except:
-            pass
+            env.close()
+        if 'eval_env' in locals():
+            eval_env.close()
 
 
 def test(model_path):
     try:
-        # 确保 GLFW 初始化
-        import glfw
-        if not glfw.init():
-            print("无法初始化 GLFW")
-            return
-            
         # 创建测试环境
         cfg = MMK2Cfg()
         cfg.use_gaussian_renderer = False  # 关闭高斯渲染器
@@ -203,18 +144,35 @@ def test(model_path):
         env = Env(task_base=task_base, render=True)
 
         # 加载模型
-        model = PPO.load(model_path)
-
+        model = DrQV2.load(model_path)
+        
         # 测试循环
         obs, info = env.reset()
         for _ in range(1000):
-            action, _states = model.predict(obs, deterministic=True)
-            obs, reward, terminated, truncated, info = env.step(action)
-            if terminated or truncated:
+            try:
+                action, _states = model.predict(obs, deterministic=True)
+                
+                # 强制确保动作形状正确
+                if isinstance(action, np.ndarray) and len(action.shape) > 1:
+                    if action.shape[0] == 1:
+                        # 将 (1, 19) 形状转换为 (19,)
+                        action = action.squeeze(0)
+                elif isinstance(action, torch.Tensor):
+                    # 如果仍是 tensor，确保转换为 numpy 并调整形状
+                    if len(action.shape) > 1 and action.shape[0] == 1:
+                        action = action.squeeze(0)
+                
+                # # 打印动作信息，便于调试
+                # print(f"动作形状: {action.shape}, 类型: {type(action)}")
+                
+                obs, reward, terminated, truncated, info = env.step(action)
+                if terminated or truncated:
+                    obs, info = env.reset()
+            except Exception as e:
+                print(f"步骤执行错误: {str(e)}")
+                # 出错时重置环境并继续
                 obs, info = env.reset()
-    
-    except Exception as e:
-        print(f"测试过程发生错误: {str(e)}")
+                continue
     
     finally:
         # 确保正确清理资源
@@ -222,18 +180,15 @@ def test(model_path):
             try:
                 env.close()
                 del env
-            except Exception as e:
-                print(f"关闭环境时出现错误: {str(e)}")
+            except:
+                pass
         
         # 手动清理GLFW资源
         import glfw
         try:
-            if glfw.get_current_context() is not None:
-                glfw.destroy_window(glfw.get_current_context())
             glfw.terminate()
-            print("GLFW资源已清理")
-        except Exception as e:
-            print(f"清理GLFW资源时出现错误: {str(e)}")
+        except:
+            pass
 
 
 if __name__ == "__main__":
