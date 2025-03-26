@@ -6,7 +6,6 @@ from abc import abstractmethod
 
 import cv2
 import glfw
-import pyautogui
 import OpenGL.GL as gl
 
 import mujoco
@@ -40,6 +39,8 @@ def setRenderOptions(options):
 class SimulatorBase:
     running = True
     obs = None
+    img_rgb_obs_s = {}
+    img_depth_obs_s = {}
 
     cam_id = -1  # -1表示自由视角
     last_cam_id = -1
@@ -197,8 +198,17 @@ class SimulatorBase:
                     assert -2 < cam_id < len(self.camera_names), "Invalid obs_depth_cam_id {}".format(cam_id)
             elif self.config.obs_depth_cam_id is None:
                 self.config.obs_depth_cam_id = []
-
-            screen_width, screen_height = pyautogui.size()
+        
+            try:
+                import screeninfo
+                monitors = screeninfo.get_monitors()
+                for m in monitors:
+                    if m.is_primary:
+                        screen_width, screen_height = m.width, m.height
+                        break
+            except Exception as e:
+                screen_width, screen_height = 1920, 1080
+                print(f"screeninfo error: {e}, using default screen size: {screen_width}x{screen_height}")
             self.mj_model.vis.global_.offwidth = max(self.mj_model.vis.global_.offwidth, screen_width)
             self.mj_model.vis.global_.offheight = max(self.mj_model.vis.global_.offheight, screen_height)
             self.renderer = mujoco.Renderer(self.mj_model, self.config.render_set["height"], self.config.render_set["width"])
@@ -222,13 +232,11 @@ class SimulatorBase:
         
         depth_rendering = self.renderer._depth_rendering
         self.renderer.disable_depth_rendering()
-        self.img_rgb_obs_s = {}
         for id in self.config.obs_rgb_cam_id:
             img = self.getRgbImg(id)
             self.img_rgb_obs_s[id] = img
         
         self.renderer.enable_depth_rendering()
-        self.img_depth_obs_s = {}
         for id in self.config.obs_depth_cam_id:
             img = self.getDepthImg(id)
             self.img_depth_obs_s[id] = img
