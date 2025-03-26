@@ -95,7 +95,8 @@ def train(render=True):
             eval_env,
             best_model_save_path=os.path.join(log_dir, "best_model"),
             log_path=log_dir,
-            eval_freq=10000,  # 每10000时间步评估一次
+            eval_freq=1000,  # 每10000时间步评估一次
+            n_eval_episodes=2,  # 每次评估进行2个回合
             deterministic=True,
             render=render
         )
@@ -131,7 +132,7 @@ def train(render=True):
             "MlpPolicy",
             env,
             policy_kwargs=policy_kwargs,  # 使用自定义特征提取器
-            n_steps=2048,  # 每次更新所收集的轨迹长度
+            n_steps=2048,  # 每次更新所收集的轨迹长度2048
             batch_size=64,  # 批次大小
             n_epochs=10,  # 每次更新迭代次数
             gamma=0.99,  # 折扣因子
@@ -145,7 +146,7 @@ def train(render=True):
         print("PPO模型创建完成，开始收集经验...")
 
         # 训练模型
-        total_timesteps = 10000
+        total_timesteps = 100000
         print("开始训练模型，总时间步数:", total_timesteps)
         model.learn(
             total_timesteps=total_timesteps,

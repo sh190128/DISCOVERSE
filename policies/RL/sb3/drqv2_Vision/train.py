@@ -61,6 +61,7 @@ def train(render=True):
             best_model_save_path=os.path.join(log_dir, "best_model"),
             log_path=log_dir,
             eval_freq=10000,  # 每10000时间步评估一次
+            n_eval_episodes=3,  # 每次评估进行2个回合
             deterministic=True,
             render=render
         )
@@ -84,13 +85,27 @@ def train(render=True):
                 self.pbar.close()
                 self.pbar = None
 
+        # 创建一个新的回调来记录详细的奖励信息
+        class RewardLoggingCallback(BaseCallback):
+            def __init__(self, verbose=0):
+                super(RewardLoggingCallback, self).__init__(verbose)
+                
+            def _on_step(self):
+                # 从环境信息中获取奖励详情
+                env_info = self.training_env.get_attr('reward_info')[0]  # 获取第一个环境的信息
+                
+                # 记录所有奖励组件到 tensorboard
+                for key, value in env_info.items():
+                    self.logger.record(key, value)
+                
+                return True
 
         model = DrQV2(
             "DrQV2Policy",
             env,
             batch_size=64,
             buffer_size=10000,
-            learning_starts=20,  # 开始学习前的步数2000
+            learning_starts=2000,  # 开始学习前的步数2000
             train_freq=2,  # 每2步更新一次
             gradient_steps=2,  # 每次更新的梯度步数
             gamma=0.99,
@@ -102,11 +117,11 @@ def train(render=True):
         print("DrQV2模型创建完成，开始收集经验...")
 
         # 训练模型
-        total_timesteps = 10000
+        total_timesteps = 1000000
         print("开始训练模型，总时间步数:", total_timesteps)
         model.learn(
             total_timesteps=total_timesteps,
-            callback=[eval_callback, TqdmCallback(total_timesteps=total_timesteps)],
+            callback=[eval_callback, TqdmCallback(total_timesteps=total_timesteps), RewardLoggingCallback()],
             log_interval=10,  # 每10次更新后记录日志
         )
 
@@ -129,7 +144,7 @@ def test(model_path):
     try:
         # 创建测试环境
         cfg = MMK2Cfg()
-        cfg.use_gaussian_renderer = False  # 关闭高斯渲染器
+        cfg.use_gaussian_renderer = True  # 关闭高斯渲染器
         cfg.init_key = "pick"  # 初始化模式
         cfg.gs_model_dict["plate_white"] = "object/plate_white.ply"  # 定义"白色盘子"模型路径
         cfg.gs_model_dict["kiwi"] = "object/kiwi.ply"  # 定义"奇异果"模型路径
@@ -196,7 +211,15 @@ if __name__ == "__main__":
     parser.add_argument("--test", action="store_true", help="测试模式")
     parser.add_argument("--model_path", type=str, help="模型路径，用于测试模式")
     parser.add_argument("--render", action="store_true", help="在训练过程中显示渲染画面")
+    parser.add_argument("--cuda", type=int, default=0, help="指定使用的GPU，默认使用0号显卡")
     args = parser.parse_args()
+
+    # 设置CUDA设备
+    if torch.cuda.is_available():
+        torch.cuda.set_device(args.cuda)
+        print(f"使用GPU: {torch.cuda.get_device_name(args.cuda)}")
+    else:
+        print("未检测到GPU，使用CPU训练")
 
     if args.test:
         if not args.model_path:

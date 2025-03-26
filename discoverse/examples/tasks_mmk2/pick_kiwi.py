@@ -37,14 +37,18 @@ class SimNode(MMK2TaskBase):
         tmat_plate_white = get_body_tmat(sim_node.mj_data, "plate_white")
         distance= np.hypot(tmat_kiwi[0, 3] - tmat_plate_white[0, 3], tmat_kiwi[1, 3] - tmat_plate_white[1, 3])
         print(distance)
+        if distance < 1e-2:
+            return True
+        return False
 
 
 cfg = MMK2Cfg()
-cfg.use_gaussian_renderer = False
+cfg.use_gaussian_renderer = True
 cfg.init_key = "pick"
 cfg.gs_model_dict["plate_white"]            = "object/plate_white.ply"
 cfg.gs_model_dict["kiwi"]          = "object/kiwi.ply"
-cfg.gs_model_dict["background"]      = "scene/Lab3/environment.ply"
+# cfg.gs_model_dict["background"]      = "scene/Lab3/environment.ply"
+cfg.gs_model_dict["background"]      = "scene/tsimf_library_1/point_cloud.ply"
 
 cfg.mjcf_file_path = "mjcf/tasks_mmk2/pick_kiwi.xml"
 cfg.obj_list    = ["plate_white", "kiwi"]

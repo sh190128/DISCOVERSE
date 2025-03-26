@@ -97,7 +97,7 @@ def test(model_path):
     try:
         # 创建测试环境
         cfg = MMK2Cfg()
-        cfg.use_gaussian_renderer = False
+        cfg.use_gaussian_renderer = True
         cfg.init_key = "pick"
         cfg.gs_model_dict["plate_white"] = "object/plate_white.ply"
         cfg.gs_model_dict["kiwi"] = "object/kiwi.ply"
@@ -116,7 +116,7 @@ def test(model_path):
 
         # 测试循环
         obs, info = env.reset()
-        for _ in range(1000):
+        for _ in range(10000):
             action, _states = model.predict(obs, deterministic=True)
             obs, reward, terminated, truncated, info = env.step(action)
             if terminated or truncated:

@@ -30,7 +30,7 @@ def train(args):
         # 创建环境
         print("正在创建环境...")
         env = Env(render=args.render)
-        env = RecordEpisodeStatistics(env)  # 记录统计信息
+        # env = RecordEpisodeStatistics(env)  # 记录统计信息
         
         # 打印环境信息以进行调试
         print(f"观察空间: {env.observation_space}")

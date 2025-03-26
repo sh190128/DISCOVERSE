@@ -6,6 +6,8 @@ from discoverse.examples.tasks_mmk2.pick_kiwi import SimNode, cfg
 from discoverse.task_base import MMK2TaskBase
 from discoverse.utils import get_body_tmat
 from skimage.transform import resize
+import os
+import cv2
 
 
 class Env(gymnasium.Env):
@@ -13,7 +15,7 @@ class Env(gymnasium.Env):
         super(Env, self).__init__()
 
         # 环境配置
-        cfg.use_gaussian_renderer = False  # 关闭高斯渲染器
+        cfg.use_gaussian_renderer = True  # 关闭高斯渲染器
         cfg.init_key = "pick"  # 初始化模式为"抓取"
         cfg.gs_model_dict["plate_white"] = "object/plate_white.ply"  # 定义白色盘子的模型路径
         cfg.gs_model_dict["kiwi"] = "object/kiwi.ply"  # 定义奇异果的模型路径
@@ -66,8 +68,22 @@ class Env(gymnasium.Env):
             # 重置环境
             self.task_base.reset()  # 重置任务环境
             # self.task_base.domain_randomization()  # 域随机化
-
             observation = self._get_obs()  # 获取初始观测
+            
+            # 保存初始观测图像
+            obs_dict = self.task_base.step(np.zeros_like(self.mj_data.ctrl))
+            if isinstance(obs_dict, tuple):
+                img = obs_dict[0]['img'][0]
+            elif isinstance(obs_dict, dict):
+                img = obs_dict['img'][0]
+            else:
+                img = obs_dict[0]['img'][0]
+            
+            # 获取当前文件所在目录
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            # 保存图像
+            cv2.imwrite(os.path.join(current_dir, 'origin.jpg'), (img * 255).astype(np.uint8))
+            
             info = {}
             return observation, info  # 返回观察值和信息
         except Exception as e:

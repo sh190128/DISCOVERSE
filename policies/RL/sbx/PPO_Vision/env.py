@@ -183,19 +183,22 @@ class Env(gymnasium.Env):
         kiwi_to_plate = np.linalg.norm(kiwi_pos - plate_pos)  # 奇异果到盘子的距离
 
         # 计算各种奖励
-        # 接近奖励：鼓励机械臂靠近奇异果
+        # 接近奖励：使用指数函数，距离越近奖励越大
         approach_reward = 0.0
-        if distance_to_kiwi < 0.05:
-            approach_reward = 2.0
+        if distance_to_kiwi < 0.1:
+            approach_reward = 5.0
         else:
-            approach_reward = -distance_to_kiwi
+            # base_reward * exp(-distance_scale * distance)
+
+            distance_scale = 5.0  # 控制衰减速度的参数
+            approach_reward = 1.0 * np.exp(-distance_scale * distance_to_kiwi)
 
         # 放置奖励：鼓励机械臂将奇异果放置到盘子
         place_reward = 0.0
         if kiwi_to_plate < 0.02:  # 成功放置
-            place_reward = 10.0
+            place_reward = 100.0
         elif kiwi_to_plate < 0.1:  # 比较接近
-            place_reward = 2.0
+            place_reward = 10.0
         else:
             place_reward = -kiwi_to_plate
 

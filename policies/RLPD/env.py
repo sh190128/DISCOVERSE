@@ -281,7 +281,7 @@ class Env(gymnasium.Env):
         切换键盘控制模式
         """
         self.key_control_mode = not self.key_control_mode
-        print(f"键盘控制模式: {'\u5f00\u542f' if self.key_control_mode else '\u5173\u95ed'}")
+        # print(f"键盘控制模式: {'\u5f00\u542f' if self.key_control_mode else '\u5173\u95ed'}")
         return self.key_control_mode
         
     def set_control_joint(self, idx):
