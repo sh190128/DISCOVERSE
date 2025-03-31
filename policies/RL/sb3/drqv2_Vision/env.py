@@ -11,11 +11,11 @@ import cv2
 
 
 class Env(gymnasium.Env):
-    def __init__(self, task_base=None, render=False):
+    def __init__(self, task_base=None, render=False, use_gaussian=False):
         super(Env, self).__init__()
 
         # 环境配置
-        cfg.use_gaussian_renderer = True  # 关闭高斯渲染器
+        cfg.use_gaussian_renderer = use_gaussian  # 关闭高斯渲染器
         cfg.init_key = "pick"  # 初始化模式为"抓取"
         cfg.gs_model_dict["plate_white"] = "object/plate_white.ply"  # 定义白色盘子的模型路径
         cfg.gs_model_dict["kiwi"] = "object/kiwi.ply"  # 定义奇异果的模型路径
@@ -25,7 +25,7 @@ class Env(gymnasium.Env):
         cfg.sync = True  # 是否同步更新
         cfg.headless = not render  # 根据render参数决定是否显示渲染画面
         cfg.render_set  = {
-                                    "fps"    : 10,
+                                    "fps"    : 5,
                                     "width"  : 640,
                                     "height" : 480
                                 }
@@ -40,11 +40,20 @@ class Env(gymnasium.Env):
         # 动作空间：机械臂关节角度控制
         # 使用actuator_ctrlrange来确定动作空间范围
         ctrl_range = self.mj_model.actuator_ctrlrange  # 获取控制器范围
+        
+        # 定义一个不受限制的动作空间，让算法可以探索全部自由度
+        # 使用一个非常大的范围来模拟无限制
+        unlimited_low = np.ones_like(ctrl_range[:, 0]) * -10.0  # 设置较大的负值
+        unlimited_high = np.ones_like(ctrl_range[:, 1]) * 10.0   # 设置较大的正值
+        
         self.action_space = spaces.Box(  # 定义动作空间
-            low=ctrl_range[:, 0],
-            high=ctrl_range[:, 1],
+            low=unlimited_low,  # 使用无限制的下限
+            high=unlimited_high,  # 使用无限制的上限
             dtype=np.float32
         )
+        
+        # 保存原始控制范围，用于在step函数中对动作进行裁剪，防止损坏机器人
+        self.original_ctrl_range = ctrl_range.copy()
 
         # 观测空间：基于视觉的观察空间
         self.observation_space = spaces.Box(
@@ -115,8 +124,16 @@ class Env(gymnasium.Env):
                 self.action_space.high
             )
 
+            # 为了确保物理模拟的稳定性，在传递给物理引擎前再次裁剪到原始控制范围
+            # 这样可以让RL算法探索更大的动作空间，但不会导致模拟器崩溃
+            engine_safe_action = np.clip(
+                clipped_action,
+                self.original_ctrl_range[:, 0],
+                self.original_ctrl_range[:, 1]
+            )
+
             # 直接更新控制信号，不通过task_base
-            self.mj_data.ctrl[:] = clipped_action  # 更新控制器信号
+            self.mj_data.ctrl[:] = engine_safe_action  # 更新控制器信号
             mujoco.mj_step(self.mj_model, self.mj_data)  # 模拟物理引擎一步
 
             # 获取新的状态
@@ -201,10 +218,19 @@ class Env(gymnasium.Env):
         # 计算各种奖励
         # 接近奖励：鼓励机械臂靠近奇异果
         approach_reward = 0.0
-        if distance_to_kiwi < 0.05:
-            approach_reward = 2.0
+        if distance_to_kiwi < 0.1:
+            approach_reward = 10.0
         else:
             approach_reward = -distance_to_kiwi
+        
+        # approach_reward = 0.0
+        # if distance_to_kiwi < 0.1:
+        #     approach_reward = 5.0
+        # else:
+        #     # base_reward * exp(-distance_scale * distance)
+
+        #     distance_scale = 5.0  # 控制衰减速度的参数
+        #     approach_reward = 1.0 * np.exp(-distance_scale * distance_to_kiwi)
 
         # 放置奖励：鼓励机械臂将奇异果放置到盘子
         place_reward = 0.0
@@ -221,13 +247,23 @@ class Env(gymnasium.Env):
         # 动作幅度惩罚：惩罚较大的控制信号
         action_magnitude = np.mean(np.abs(self.mj_data.ctrl))
         action_penalty = -0.1 * action_magnitude
+        
+        # 添加探索奖励：鼓励尝试不同的动作
+        # 如果当前动作与安全范围边界接近，给予额外奖励
+        action_diff_to_boundary = np.minimum(
+            np.abs(self.mj_data.ctrl - self.original_ctrl_range[:, 0]),
+            np.abs(self.mj_data.ctrl - self.original_ctrl_range[:, 1])
+        )
+        # 当动作接近边界时，给予探索奖励
+        exploration_reward = 0.1 * np.sum(np.exp(-10.0 * action_diff_to_boundary))
 
         # 总奖励
         total_reward = (
                 approach_reward +
                 place_reward +
                 step_penalty +
-                action_penalty
+                action_penalty +
+                exploration_reward
         )
 
         # 记录详细的奖励信息供日志使用
@@ -237,6 +273,7 @@ class Env(gymnasium.Env):
             "rewards/place": place_reward,
             "rewards/step_penalty": step_penalty,
             "rewards/action_penalty": action_penalty,
+            "rewards/exploration": exploration_reward,
             "info/distance_to_kiwi": distance_to_kiwi,
             "info/kiwi_to_plate": kiwi_to_plate,
             "info/action_magnitude": action_magnitude

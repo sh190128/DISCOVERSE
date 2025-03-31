@@ -48,12 +48,12 @@ class CNNFeatureExtractor(torch.nn.Module):
         return self._features_dim
 
 
-def make_env(render=True):
+def make_env(render=True, use_gaussian=False):
     """创建环境的工厂函数"""
 
     def _init():
         try:
-            env = Env(render=render)
+            env = Env(render=render, use_gaussian=use_gaussian)
             return env
         except Exception as e:
             print(f"环境创建失败: {str(e)}")
@@ -62,14 +62,14 @@ def make_env(render=True):
     return _init
 
 
-def train(render=True):
+def train(render=True, use_gaussian=False, total_timesteps=1000000):
     # 设置随机种子，保证结果可复现
     np.random.seed(42)
     torch.manual_seed(42)
 
     try:
         print("开始创建环境...")
-        env = make_env(render=render)()
+        env = make_env(render=render, use_gaussian=use_gaussian)()
         print("环境创建完成")
         # 添加Monitor包装器来记录训练数据
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -84,7 +84,7 @@ def train(render=True):
 
         # 创建评估环境
         print("开始创建评估环境...")
-        eval_env = make_env(render=render)()
+        eval_env = make_env(render=render, use_gaussian=use_gaussian)()
         print("评估环境创建完成")
         eval_env = Monitor(eval_env, log_dir)
         print("评估环境Monitor包装器添加完成")
@@ -95,7 +95,7 @@ def train(render=True):
             eval_env,
             best_model_save_path=os.path.join(log_dir, "best_model"),
             log_path=log_dir,
-            eval_freq=1000,  # 每10000时间步评估一次
+            eval_freq=2000,  # 每10000时间步评估一次
             n_eval_episodes=2,  # 每次评估进行2个回合
             deterministic=True,
             render=render
@@ -161,10 +161,10 @@ def train(render=True):
         print("PPO模型创建完成，开始收集经验...")
 
         # 训练模型
-        total_timesteps = 100000
         print("开始训练模型，总时间步数:", total_timesteps)
         model.learn(
             total_timesteps=total_timesteps,
+            tb_log_name="PPO_Vision",
             callback=[eval_callback, TqdmCallback(total_timesteps=total_timesteps), RewardLoggingCallback()],
             log_interval=10,  # 每10次更新后记录日志
         )
@@ -258,6 +258,8 @@ if __name__ == "__main__":
     parser.add_argument("--model_path", type=str, help="模型路径，用于测试模式")
     parser.add_argument("--render", action="store_true", help="在训练过程中显示渲染画面")
     parser.add_argument("--cuda", type=int, default=0, help="指定使用的GPU，默认使用0号显卡")
+    parser.add_argument("--use_gaussian", action="store_true", help="使用高斯渲染器")
+    parser.add_argument("--total_timesteps", type=int, default=1000000, help="训练的总时间步数")
     args = parser.parse_args()
 
     # 设置CUDA设备
@@ -273,4 +275,4 @@ if __name__ == "__main__":
         else:
             test(args.model_path)
     else:
-        train(render=args.render)
+        train(render=args.render, use_gaussian=args.use_gaussian, total_timesteps=args.total_timesteps)
