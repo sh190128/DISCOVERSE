@@ -6,6 +6,7 @@ from discoverse.examples.tasks_mmk2.pick_kiwi import SimNode, cfg
 from discoverse.task_base import MMK2TaskBase
 from discoverse.utils import get_body_tmat
 from skimage.transform import resize
+import cv2
 
 
 class Env(gymnasium.Env):
@@ -75,7 +76,9 @@ class Env(gymnasium.Env):
             # 重置环境
             self.task_base.reset()  # 重置任务环境
             # self.task_base.domain_randomization()  # 域随机化
-
+            img = self.task_base.getObservation()["img"][0]
+            # 保存原始图像
+            cv2.imwrite('original.jpg', cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
             observation = self._get_obs()  # 获取初始观测
             info = {}
             return observation, info  # 返回观察值和信息
@@ -116,9 +119,11 @@ class Env(gymnasium.Env):
                 self.original_ctrl_range[:, 1]
             )
 
-            # 直接更新控制信号，不通过task_base
-            self.mj_data.ctrl[:] = engine_safe_action  # 更新控制器信号
-            mujoco.mj_step(self.mj_model, self.mj_data)  # 模拟物理引擎一步
+            # # 直接更新控制信号，不通过task_base
+            # self.mj_data.ctrl[:] = engine_safe_action  # 更新控制器信号
+            # mujoco.mj_step(self.mj_model, self.mj_data)  # 模拟物理引擎一步
+
+            self.task_base.step(engine_safe_action)
 
             # 获取新的状态
             observation = self._get_obs()  # 获取新的观察值
@@ -140,9 +145,12 @@ class Env(gymnasium.Env):
             return observation, 0.0, False, True, {}  # 使用truncated=True表示异常终止
 
     def _get_obs(self):
-        # 获取摄像头图像
-        action = np.zeros_like(self.mj_data.ctrl)  # 创建空动作
-        obs_dict = self.task_base.step(action)  # 获取观察字典
+        # # 获取摄像头图像
+        # action = np.zeros_like(self.mj_data.ctrl)  # 创建空动作
+        # obs_dict = self.task_base.step(action)  # 获取观察字典
+
+        # 使用getObservation()直接获取观察值，而不是通过step方法
+        obs_dict = self.task_base.getObservation()  # 直接获取观察字典
         
         # 不再打印警告，直接处理不同类型的观察值
         try:

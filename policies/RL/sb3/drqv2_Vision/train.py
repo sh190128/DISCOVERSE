@@ -60,8 +60,8 @@ def train(render=True, use_gaussian=False, total_timesteps=1000000):
             eval_env,
             best_model_save_path=os.path.join(log_dir, "best_model"),
             log_path=log_dir,
-            eval_freq=2000,  # 每10000时间步评估一次
-            n_eval_episodes=3,  # 每次评估进行2个回合
+            eval_freq=200,  # 每10000时间步评估一次
+            n_eval_episodes=1,  # 每次评估进行2个回合
             deterministic=True,
             render=render
         )
@@ -105,7 +105,7 @@ def train(render=True, use_gaussian=False, total_timesteps=1000000):
             env,
             batch_size=64,
             buffer_size=10000,
-            learning_starts=2000,  # 开始学习前的步数2000
+            learning_starts=100,  # 开始学习前的步数2000
             train_freq=2,  # 每2步更新一次
             gradient_steps=2,  # 每次更新的梯度步数
             gamma=0.99,

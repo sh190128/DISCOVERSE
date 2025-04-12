@@ -95,8 +95,8 @@ def train(render=True, use_gaussian=False, total_timesteps=1000000):
             eval_env,
             best_model_save_path=os.path.join(log_dir, "best_model"),
             log_path=log_dir,
-            eval_freq=2000,  # 每10000时间步评估一次
-            n_eval_episodes=2,  # 每次评估进行2个回合
+            eval_freq=100,  # 每10000时间步评估一次
+            n_eval_episodes=1,  # 每次评估进行2个回合
             deterministic=True,
             render=render
         )
